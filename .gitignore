@@ -4,6 +4,8 @@
 #random junk
 .vscode
 *.out
+main
+test
 
 # Prerequisites
 *.d
