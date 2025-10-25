@@ -95,6 +95,17 @@ typedef enum{
     EXECUTE_TABLE_FULL
 } ExecuteResult;
 
+
+//used the Cursor data structure that keeps track of the 
+//table
+//number of row its on
+//is it end of table or not
+typedef struct{
+    Table* table;
+    uint32_t row_num;
+    bool end_of_table;
+} Cursor;
+
 //======================================================================================================
 //======================================================================================================
 //                                      FUNCTUION DECLARATION
@@ -102,7 +113,7 @@ typedef enum{
 //======================================================================================================
 
 InputBuffer* new_input_buffer();
-void print_prompt();
+void print_prompt(char filename[]);
 void read_input(InputBuffer* input_buffer);
 void close_input_buffer(InputBuffer* input_buffer);
 MetaCommandResult do_meta_command(InputBuffer* input_buffer, Table* table);
@@ -113,13 +124,16 @@ void deserialize_row(void* source, Row* destination);
 void* get_page(Pager* pager, uint32_t page_num);
 void db_close(Table* table);
 void page_flush(Pager* pager, uint32_t page_num, uint32_t size);
-void* row_slot(Table* table, uint32_t row_num);
+void* cursor_value(Cursor* cursor);
 ExecuteResult execute_insert(Statement* statement, Table* table);
 ExecuteResult execute_select(Statement* statement, Table* table);
 ExecuteResult execute_statement(Statement* statement, Table* table);
 Pager* pager_open(const char* filename);
 Table* db_open(const char* filename);
 void free_table(Table* table);
+Cursor* table_start(Table* table);
+Cursor* table_end(Table* table);
+void cursor_advance(Cursor* cursor);
 
 //======================================================================================================
 //======================================================================================================
@@ -133,11 +147,13 @@ int main(int argc, char* argv[]){
     }
 
     char* filename = argv[1];
-    Table* table = db_open(filename);
+    char filename_as_string[100];
+    strcpy(filename_as_string, filename);
+    Table* table = db_open(filename_as_string);
     InputBuffer* input_buffer = new_input_buffer();
 
     while (1){
-        print_prompt();
+        print_prompt(filename);
         read_input(input_buffer);
 
         if (input_buffer->buffer[0] == '.'){
@@ -197,7 +213,10 @@ InputBuffer* new_input_buffer(){
     return input_buffer;
 }
 
-void print_prompt(){ printf("db > "); }
+void print_prompt(char filename[]){
+    filename[strlen(filename)-3] = '\0';
+    printf("%s > ", filename); 
+}
 
 // Reads input
 void read_input(InputBuffer* input_buffer){
@@ -370,10 +389,11 @@ void page_flush(Pager* pager,uint32_t page_num, uint32_t size){
     }
 }
 
-void* row_slot(Table* table, uint32_t row_num){
+void* cursor_value(Cursor* cursor){
+    uint32_t row_num = cursor->row_num;
     uint32_t page_num = row_num / ROWS_PER_PAGE;
     
-    void* page = get_page(table->pager, page_num);
+    void* page = get_page(cursor->table->pager, page_num);
     uint32_t row_offset = row_num % ROWS_PER_PAGE;
     uint32_t byte_offset = row_offset * ROW_SIZE;
     return (char*)page + byte_offset;
@@ -385,12 +405,15 @@ ExecuteResult execute_insert(Statement* statement, Table* table){
     }
 
     Row* row_to_insert = &(statement->row_to_insert);
-    void* destination = row_slot(table, table->num_rows);
+    Cursor* cursor = table_end(table);
+    void* destination = cursor_value(cursor);
     if (destination == NULL){
         return EXECUTE_TABLE_FULL;
     }
     serialize_row(row_to_insert, destination);
+    serialize_row(row_to_insert, cursor_value(cursor));
     table->num_rows += 1;
+    free(cursor);
     return EXECUTE_SUCCESS;
 }
 
@@ -399,12 +422,14 @@ void print_row(Row* row){
 }
 
 ExecuteResult execute_select(Statement* statement, Table* table){
+    Cursor* cursor = table_start(table);
     Row row;
-    for (uint32_t i = 0; i < table->num_rows; i++){
-        void* source = row_slot(table, i);
-        deserialize_row(source, &row);
+    while(!(cursor->end_of_table)){
+        deserialize_row(cursor_value(cursor), &row);
         print_row(&row);
+        cursor_advance(cursor);
     }
+    free(cursor);
     return EXECUTE_SUCCESS;
 }
 
@@ -459,4 +484,32 @@ void free_table(Table* table){
         }
     }
     free(table);
+}
+
+//marks the start of the table.
+Cursor* table_start(Table* table){
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->row_num = 0;
+    cursor->end_of_table = false;
+
+    return cursor;
+}
+
+
+//marks the end of table (for insertion)
+Cursor* table_end(Table* table){
+    Cursor* cursor = malloc(sizeof(Cursor));
+    cursor->table = table;
+    cursor->row_num = table->num_rows;
+    cursor->end_of_table = true;
+
+    return cursor;
+}
+
+void cursor_advance(Cursor* cursor){
+    cursor->row_num += 1;
+    if(cursor->row_num >= cursor->table->num_rows){
+        cursor->end_of_table = true;
+    }
 }
