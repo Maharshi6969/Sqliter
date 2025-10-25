@@ -1,6 +1,10 @@
 #database files
 *.db
 
+#random junk
+.vscode
+*.out
+
 # Prerequisites
 *.d
 
