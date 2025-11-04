@@ -104,12 +104,12 @@ mydata > .exit
 2. Compile
 
    ```bash
-   gcc main.c -o sqliter
+   gcc main.c pager.c btree.c table.c parser.c executor.c layout.c -o main
    ```
 3. Run
 
    ```bash
-   ./sqliter mydata.db
+   ./main mydata.db
    ```
 
 ---
